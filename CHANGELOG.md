@@ -2,6 +2,10 @@
 
 ## 0.14.2 — Unreleased
 
+### Fixed
+
+- Browser: reject Deep Research planning/status captures and fail clearly when ChatGPT silently returns a normal response without observable research activity, instead of saving either as the final report. Fixes #261. Thanks @aaronflorey!
+
 ## 0.14.1 — 2026-06-15
 
 ### Changed
