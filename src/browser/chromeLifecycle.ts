@@ -672,6 +672,13 @@ function resolveRemoteDebugHost(): string | null {
   if (!isWsl()) {
     return null;
   }
+  // Only infer the WSL host IP when we actually drive a Windows chrome.exe across the WSL
+  // boundary. With a Linux Chrome (CHROME_PATH=/usr/bin/google-chrome) the browser is a
+  // local child process reachable at 127.0.0.1 — the resolv.conf nameserver (often the
+  // 10.255.255.254 virtual DNS) is NOT a Chrome endpoint and yields ECONNREFUSED.
+  if (!isWindowsChromeBinary(process.env.CHROME_PATH)) {
+    return null;
+  }
   try {
     const resolv = readFileSync("/etc/resolv.conf", "utf8");
     for (const line of resolv.split("\n")) {
@@ -684,6 +691,15 @@ function resolveRemoteDebugHost(): string | null {
     // ignore; fall back to localhost
   }
   return null;
+}
+
+// Local copy of the helper in index.ts (not exported there; importing it into this
+// lower-level module would risk a circular import). Mirrors the local-isWsl pattern.
+function isWindowsChromeBinary(chromePath: string | undefined): boolean {
+  if (!chromePath) return false;
+  const normalized = chromePath.trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.endsWith(".exe") || normalized.startsWith("/mnt/") || normalized.includes("\\");
 }
 
 function isWsl(): boolean {
