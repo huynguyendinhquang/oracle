@@ -148,7 +148,7 @@ function buildModelSelectionExpression(
   const menuItemLiteral = JSON.stringify(
     `${MENU_ITEM_SELECTOR}, [role="option"], [role="radio"], [role="combobox"]`,
   );
-  return `(() => {
+  return `(async () => {
     ${buildClickDispatcher()}
     // Capture the selectors and matcher literals up front so the browser expression stays pure.
     const BUTTON_SELECTOR = '${MODEL_BUTTON_SELECTOR}';
@@ -440,7 +440,17 @@ function buildModelSelectionExpression(
       };
     }
 
-    const button = findModelButton();
+    // The model selector button can render late on a cold/fresh chatgpt.com page
+    // (the composer plus-button appears first). Poll for it before giving up,
+    // otherwise model switching fails spuriously on the first run of a session.
+    let button = findModelButton();
+    if (!button) {
+      const buttonDeadline = Date.now() + MAX_WAIT_MS;
+      while (!button && Date.now() < buttonDeadline) {
+        await new Promise((r) => setTimeout(r, 250));
+        button = findModelButton();
+      }
+    }
     if (!button) {
       return { status: 'button-missing' };
     }
