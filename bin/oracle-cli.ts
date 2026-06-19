@@ -772,10 +772,8 @@ program
   .addOption(
     new Option(
       "--browser-thinking-time <level>",
-      "Thinking time intensity for Thinking/Pro models: light, standard, extended, heavy, or ChatGPT UI aliases.",
-    )
-      .argParser(parseThinkingTimeOption)
-      .hideHelp(),
+      "Thinking time / ChatGPT tier for Thinking/Pro models: light|standard|extended|heavy, or UI aliases instant|medium|high|extra-high (e.g. -m gpt-5.5 --browser-thinking-time extra-high).",
+    ).argParser(parseThinkingTimeOption),
   )
   .addOption(
     new Option(
