@@ -10,7 +10,8 @@ import { runProviderDomFlow } from "../browser/providerDomFlow.js";
 import { delay } from "../browser/utils.js";
 import { runGeminiWebWithFallback, saveFirstGeminiImageFromOutput } from "./client.js";
 import { geminiDeepThinkDomProvider } from "../browser/providers/index.js";
-import { resolveGeminiWebModel, type GeminiWebModelId } from "./models.js";
+import { resolveGeminiWebModel, geminiWebModelLabel, type GeminiWebModelId } from "./models.js";
+import type { BrowserModelSelectionEvidence } from "../sessionManager.js";
 import type { GeminiWebOptions, GeminiWebResponse } from "./types.js";
 import { openGeminiBrowserSession } from "./browserSessionManager.js";
 import { selectGeminiExecutionMode } from "./executionMode.js";
@@ -332,6 +333,22 @@ async function loadGeminiCookies(
   };
 }
 
+function buildGeminiModelSelectionEvidence(
+  requestedModel: string | undefined | null,
+  effectiveModel: GeminiWebModelId,
+  requestedResolved: GeminiWebModelId,
+): BrowserModelSelectionEvidence {
+  const fellBack = effectiveModel !== requestedResolved;
+  return {
+    requestedModel: requestedModel ?? geminiWebModelLabel(requestedResolved),
+    resolvedLabel: geminiWebModelLabel(effectiveModel),
+    status: "switched",
+    verified: !fellBack,
+    source: "config",
+    capturedAt: new Date().toISOString(),
+  };
+}
+
 export function createGeminiWebExecutor(
   geminiOptions: GeminiWebOptions,
 ): (runOptions: BrowserRunOptions) => Promise<BrowserRunResult> {
@@ -382,6 +399,11 @@ export function createGeminiWebExecutor(
           tookMs,
           answerTokens: estimateTokenCount(browserResult.text),
           answerChars: browserResult.text.length,
+          modelSelection: buildGeminiModelSelectionEvidence(
+            runOptions.config?.desiredModel,
+            model,
+            model,
+          ),
         };
       },
     };
@@ -414,6 +436,7 @@ export function createGeminiWebExecutor(
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
         let response: GeminiWebResponse;
+        let effectiveModel: GeminiWebModelId = model;
 
         try {
           if (editImagePath) {
@@ -492,6 +515,7 @@ export function createGeminiWebExecutor(
               chatMetadata: null,
               signal: controller.signal,
             });
+            effectiveModel = out.effectiveModel;
             response = {
               text: out.text ?? null,
               thoughts: geminiOptions.showThoughts ? out.thoughts : null,
@@ -524,6 +548,11 @@ export function createGeminiWebExecutor(
           tookMs,
           answerTokens: estimateTokenCount(answerText),
           answerChars: answerText.length,
+          modelSelection: buildGeminiModelSelectionEvidence(
+            runOptions.config?.desiredModel,
+            effectiveModel,
+            model,
+          ),
         };
       },
     };

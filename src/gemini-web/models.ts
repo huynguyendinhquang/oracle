@@ -108,3 +108,15 @@ export function resolveGeminiWebModel(
       return DEFAULT_GEMINI_WEB_MODEL;
   }
 }
+
+const GEMINI_WEB_MODEL_LABELS: Record<GeminiWebModelId, string> = {
+  "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "gemini-3.5-flash": "Gemini 3.5 Flash",
+  "gemini-3.1-pro": "Gemini 3.1 Pro",
+  "gemini-3-pro-deep-think": "Gemini 3 Pro Deep Think",
+};
+
+/** Human-readable label for a resolved Gemini web model (for selection evidence). */
+export function geminiWebModelLabel(model: GeminiWebModelId): string {
+  return GEMINI_WEB_MODEL_LABELS[model] ?? model;
+}
