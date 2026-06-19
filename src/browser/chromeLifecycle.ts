@@ -630,6 +630,18 @@ function buildChromeFlags(headless: boolean, debugBindAddress?: string | null): 
     flags.push("--password-store=basic", "--use-mock-keychain");
   }
 
+  // WSL2 has no GPU stack; the Chrome GPU subprocess crash-loops and CDP never
+  // stabilizes (GPU process exit_code=-2147483645 -> "FATAL GPU process isn't
+  // usable. Goodbye."). Disable GPU/sandbox so the browser engine works here.
+  if (isWsl()) {
+    flags.push(
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+    );
+  }
+
   if (debugBindAddress) {
     flags.push(`--remote-debugging-address=${debugBindAddress}`);
   }
