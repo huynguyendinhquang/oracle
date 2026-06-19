@@ -264,10 +264,32 @@ function buildModelSelectionExpression(
       ];
       return modelTokens.some((token) => hasToken(label, token));
     };
+    // Compact unified menu (ChatGPT UI, 2026-06): the model trigger is a plain
+    // button[aria-haspopup="menu"] whose text is the active tier label
+    // (e.g. "Instant", "Pro"), with no __composer-pill class or model-switcher
+    // testid — so BUTTON_SELECTOR and looksLikeModelPill both miss it.
+    const looksLikeModelMenuButton = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      if (node.getAttribute('aria-haspopup') !== 'menu') return false;
+      if (node.getAttribute('data-testid') === 'composer-plus-btn') return false;
+      if (!isVisibleElement(node)) return false;
+      const label = normalizeText(
+        (node.textContent ?? '') + ' ' + (node.getAttribute('aria-label') ?? '') + ' ' + (node.getAttribute('title') ?? '')
+      );
+      if (!label) return false;
+      if (label.includes('click to remove')) return false;
+      const modelTokens = [
+        'chatgpt', 'gpt', 'instant', 'thinking', 'pro',
+        'extended', 'standard', 'medium', 'high', 'heavy', 'light', 'auto',
+      ];
+      return modelTokens.some((token) => hasToken(label, token));
+    };
     const findModelButton = () => {
       const explicit = document.querySelector(BUTTON_SELECTOR);
       if (explicit) return explicit;
-      return Array.from(document.querySelectorAll('button.__composer-pill')).find(looksLikeModelPill) ?? null;
+      const pill = Array.from(document.querySelectorAll('button.__composer-pill')).find(looksLikeModelPill);
+      if (pill) return pill;
+      return Array.from(document.querySelectorAll('button[aria-haspopup="menu"]')).find(looksLikeModelMenuButton) ?? null;
     };
 
     const closeMenu = () => {
