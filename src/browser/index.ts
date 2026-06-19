@@ -3852,9 +3852,21 @@ function extractConversationIdFromUrl(url: string): string | undefined {
   return match?.[1];
 }
 
+/** True only when CHROME_PATH points at a Windows chrome.exe (under /mnt or ending in .exe). */
+function isWindowsChromeBinary(chromePath: string | undefined): boolean {
+  if (!chromePath) return false;
+  const normalized = chromePath.trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.endsWith(".exe") || normalized.startsWith("/mnt/") || normalized.includes("\\");
+}
+
 async function resolveUserDataBaseDir(): Promise<string> {
   // On WSL, Chrome launched via Windows can choke on UNC paths; prefer a Windows-backed temp folder.
-  if (isWsl()) {
+  // BUT only when we actually drive a Windows chrome.exe. With a Linux Chrome binary
+  // (CHROME_PATH=/usr/bin/google-chrome) chrome-launcher converts the user-data-dir to a
+  // Windows path (C:\Users\...\) which Linux Chrome then treats as a *relative* path, littering
+  // the cwd with literal "C:\Users\..." dirs. Use a Linux tmp dir in that case.
+  if (isWsl() && isWindowsChromeBinary(process.env.CHROME_PATH)) {
     const candidates = [
       "/mnt/c/Users/Public/AppData/Local/Temp",
       "/mnt/c/Temp",
