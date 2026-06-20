@@ -743,10 +743,27 @@ function buildModelSelectionExpression(
         normalizedTestId.includes('pro');
       const candidateHasInstant =
         normalizedText.includes('instant') || normalizedTestId.includes('instant');
+      const candidateSelectsConfiguredVersion =
+        Boolean(getConfigurationDialog()) &&
+        candidateSelectsDesiredVersion &&
+        (node?.getAttribute?.('role') === 'option' ||
+          node?.getAttribute?.('role') === 'menuitemradio');
+      const candidateOpensInstantSubmenu =
+        wantsInstant &&
+        candidateSelectsDesiredVersion &&
+        !candidateHasInstant &&
+        (normalizedTestId.includes('submenu') ||
+          node?.getAttribute?.('aria-haspopup') === 'menu' ||
+          node?.getAttribute?.('data-has-submenu') !== null);
       if (wantsPro && candidateHasThinking) return 0;
       if (wantsPro && candidateHasLegacyProVersion && !candidateSelectsDesiredVersion) return 0;
       if (wantsPro && !candidateHasPro && !candidateSelectsDesiredVersion) return 0;
-      if (wantsInstant && !candidateHasInstant && !candidateSelectsDesiredVersion) return 0;
+      if (
+        wantsInstant &&
+        !candidateHasInstant &&
+        !candidateOpensInstantSubmenu &&
+        !candidateSelectsConfiguredVersion
+      ) return 0;
       if (wantsThinking && candidateHasPro) return 0;
       if (wantsThinking && !candidateHasThinking && !candidateSelectsDesiredVersion) return 0;
       if (desiredVersion === '5-5' && normalizedText && !candidateGpt55VisibleAlias) {
@@ -785,9 +802,13 @@ function buildModelSelectionExpression(
       if (
         desiredVersion &&
         candidateTextVersion === desiredVersion &&
+        !candidateOpensInstantSubmenu &&
         !(wantsThinking && desiredVersion === '5-5' && normalizedText === 'gpt 5 5')
       ) {
         score += 1200;
+      }
+      if (candidateOpensInstantSubmenu) {
+        score += 300;
       }
       if (candidateOpensVersionSubmenu) {
         score += 500;
@@ -893,6 +914,9 @@ function buildModelSelectionExpression(
       const currentButtonLabel = normalizeText(getButtonLabel());
       return !labelHasProWord(currentButtonLabel) && !hasProComposerPill();
     };
+    const openedSubmenuKeys = new Set();
+    const submenuKey = (normalizedText, testid) =>
+      normalizeText(testid ?? '') + '|' + normalizedText;
 
     const findBestOption = () => {
       // Walk through every menu item and keep whichever earns the highest score.
@@ -907,6 +931,10 @@ function buildModelSelectionExpression(
           const text = option.textContent ?? '';
           const normalizedText = normalizeText(text);
           const testid = option.getAttribute('data-testid') ?? '';
+          const optionSubmenuKey = submenuKey(normalizedText, testid);
+          if (isSubmenuOption(option, testid) && openedSubmenuKeys.has(optionSubmenuKey)) {
+            continue;
+          }
           let score = scoreOption(normalizedText, testid, option);
           if (score <= 0) {
             continue;
@@ -916,7 +944,14 @@ function buildModelSelectionExpression(
           }
           const label = getOptionLabel(option);
           if (!bestMatch || score > bestMatch.score) {
-            bestMatch = { node: option, label, score, testid, normalizedText };
+            bestMatch = {
+              node: option,
+              label,
+              score,
+              testid,
+              normalizedText,
+              submenuKey: optionSubmenuKey,
+            };
           }
         }
       }
@@ -1008,6 +1043,13 @@ function buildModelSelectionExpression(
       const openDelay = () => new Promise((r) => setTimeout(r, INITIAL_WAIT_MS));
       let initialized = false;
       const attempt = async () => {
+        if (performance.now() - start > MAX_WAIT_MS) {
+          resolve({
+            status: 'option-not-found',
+            hint: { temporaryChat: detectTemporaryChat(), availableOptions: collectAvailableOptions() },
+          });
+          return;
+        }
         if (!initialized) {
           initialized = true;
           await openDelay();
@@ -1030,6 +1072,7 @@ function buildModelSelectionExpression(
           // Keep scanning once the submenu opens instead of treating the submenu click as a final switch.
           const isSubmenu = isSubmenuOption(match.node, match.testid);
           if (isSubmenu) {
+            openedSubmenuKeys.add(match.submenuKey);
             openSubmenuOption(match.node);
             setTimeout(attempt, REOPEN_INTERVAL_MS / 2);
             return;

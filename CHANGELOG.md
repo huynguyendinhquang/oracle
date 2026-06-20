@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.14.2 — Unreleased
+## 0.15.1 — Unreleased
+
+## 0.15.0 — 2026-06-19
+
+### Added
+
+- Browser: `--copy-profile <dir>` copies the active signed-in Chrome profile (or an explicit `--browser-chrome-profile`) to a throwaway profile and runs browser mode against it, reusing the live ChatGPT session with no manual sign-in. Skips keychain-mocking flags so encrypted cookies decrypt via the real Chrome "Safe Storage" key (macOS/Linux; requires `rsync`). The throwaway copy is always cleaned up, rejects incompatible persistent/existing/remote browser modes, and fails fast if the required `Local State` cannot be copied. Thanks @edwarddgao!
+
+### Changed
+
+- Dependencies: update Vitest, coverage tooling, Vite, Hono, and protobufjs to remove vulnerable transitive releases.
+
+### Fixed
+
+- Browser: wait for the current ChatGPT Intelligence pill before falling back to the default thinking level, and make `--browser-model-strategy select` prefer concrete requested variants over version-only submenu wrappers with bounded retries. This lets current-model runs select and verify Extra High before submitting and prevents explicit Instant selection from hanging (thanks @alex-on-java and @servrox).
+- Browser: save ChatGPT generated-file button downloads sequentially, preserve browser-provided filenames for generic endpoints, and stop after a timed-out download so late completions cannot be attributed to the next file. Thanks @orbitingflea!
+- Browser: reject Deep Research planning/status captures and fail clearly when ChatGPT silently returns a normal response without observable research activity, instead of saving either as the final report. Fixes #261. Thanks @aaronflorey!
 
 ## 0.14.1 — 2026-06-15
 
