@@ -8,6 +8,11 @@ import {
 } from "../constants.js";
 import { logDomFailure } from "../domDebug.js";
 import { buildClickDispatcher } from "./domEvents.js";
+import { delay } from "../utils.js";
+
+/** Cold-start budget: a fresh chatgpt.com tab renders the model button late. */
+const DEFAULT_BUTTON_RETRY_MS = 20000;
+const BUTTON_RETRY_INTERVAL_MS = 250;
 
 const LEGACY_PRO_VERSION_WORD_TOKENS = ["5 4", "5 2", "5 1", "5 0", "gpt 5 pro"] as const;
 const LEGACY_PRO_VERSION_COMPACT_TOKENS = ["gpt54", "gpt52", "gpt51", "gpt50"] as const;
@@ -17,14 +22,9 @@ export async function ensureModelSelection(
   desiredModel: string,
   logger: BrowserLogger,
   strategy: BrowserModelStrategy = "select",
+  options: { buttonRetryMs?: number } = {},
 ): Promise<BrowserModelSelectionEvidence> {
-  const outcome = await Runtime.evaluate({
-    expression: buildModelSelectionExpression(desiredModel, strategy),
-    awaitPromise: true,
-    returnByValue: true,
-  });
-
-  const result = outcome.result?.value as
+  type ModelSelectionResult =
     | { status: "already-selected"; label?: string | null }
     | { status: "switched"; label?: string | null }
     | {
@@ -33,6 +33,24 @@ export async function ensureModelSelection(
       }
     | { status: "button-missing" }
     | undefined;
+
+  // The model button can render late on a cold/fresh chatgpt.com tab. The DOM
+  // expression returns button-missing synchronously; retry it on a timer so the
+  // first run of a session does not fail spuriously while the button mounts.
+  const deadline = Date.now() + (options.buttonRetryMs ?? DEFAULT_BUTTON_RETRY_MS);
+  let result: ModelSelectionResult;
+  for (;;) {
+    const outcome = await Runtime.evaluate({
+      expression: buildModelSelectionExpression(desiredModel, strategy),
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    result = outcome.result?.value as ModelSelectionResult;
+    if (result?.status !== "button-missing" || Date.now() >= deadline) {
+      break;
+    }
+    await delay(BUTTON_RETRY_INTERVAL_MS);
+  }
 
   switch (result?.status) {
     case "already-selected":
@@ -148,7 +166,7 @@ function buildModelSelectionExpression(
   const menuItemLiteral = JSON.stringify(
     `${MENU_ITEM_SELECTOR}, [role="option"], [role="radio"], [role="combobox"]`,
   );
-  return `(async () => {
+  return `(() => {
     ${buildClickDispatcher()}
     // Capture the selectors and matcher literals up front so the browser expression stays pure.
     const BUTTON_SELECTOR = '${MODEL_BUTTON_SELECTOR}';
@@ -441,16 +459,10 @@ function buildModelSelectionExpression(
     }
 
     // The model selector button can render late on a cold/fresh chatgpt.com page
-    // (the composer plus-button appears first). Poll for it before giving up,
-    // otherwise model switching fails spuriously on the first run of a session.
-    let button = findModelButton();
-    if (!button) {
-      const buttonDeadline = Date.now() + MAX_WAIT_MS;
-      while (!button && Date.now() < buttonDeadline) {
-        await new Promise((r) => setTimeout(r, 250));
-        button = findModelButton();
-      }
-    }
+    // (the composer plus-button appears first). When it is absent we return
+    // button-missing synchronously; ensureModelSelection() re-evaluates this
+    // expression on a timer so the cold-start case is retried at the TS layer.
+    const button = findModelButton();
     if (!button) {
       return { status: 'button-missing' };
     }
