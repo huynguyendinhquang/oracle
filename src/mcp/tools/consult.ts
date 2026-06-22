@@ -33,6 +33,7 @@ import { applyConsultPreset } from "../consultPresets.js";
 import { loadUserConfig, type UserConfig } from "../../config.js";
 import { resolveNotificationSettings } from "../../cli/notifier.js";
 import { mapModelToBrowserLabel, resolveBrowserModelLabel } from "../../cli/browserConfig.js";
+import { resolveBrowserFollowupReference } from "../../cli/followup.js";
 import type { BrowserModelStrategy } from "../../browser/types.js";
 import { normalizeThinkingTimeLevel } from "../../oracle/thinkingTime.js";
 
@@ -113,6 +114,12 @@ const consultInputShape = {
     .optional()
     .describe(
       "Browser-only: additional prompts to submit sequentially in the same ChatGPT conversation after the initial answer.",
+    ),
+  browserFollowupSession: z
+    .string()
+    .optional()
+    .describe(
+      "Browser-only: reopen a PRIOR session's ChatGPT conversation and append this prompt to it (mirrors CLI --followup). Pass a session id/slug from the `sessions` tool; the stored /c/<id> conversation is resumed instead of starting a new chat.",
     ),
   browserKeepBrowser: z
     .boolean()
@@ -211,6 +218,7 @@ const consultDryRunResolvedShape = z.object({
       manualLogin: z.boolean().optional(),
       profileDir: z.string().nullable().optional(),
       chatgptUrl: z.string().nullable().optional(),
+      resumeConversationUrl: z.string().nullable().optional(),
       imageOutputPath: z.string().nullable().optional(),
     })
     .optional(),
@@ -445,6 +453,7 @@ export function buildConsultDryRunResolved({
             manualLogin: browserConfig?.manualLogin,
             profileDir: browserConfig?.manualLoginProfileDir ?? null,
             chatgptUrl,
+            resumeConversationUrl: browserConfig?.resumeConversationUrl ?? null,
             imageOutputPath,
           }
         : undefined,
@@ -477,6 +486,9 @@ export function formatConsultDryRunResolved(details: ConsultDryRunResolved): str
     }
     if (details.browser.chatgptUrl) {
       lines.push(`  ChatGPT URL: ${details.browser.chatgptUrl}`);
+    }
+    if (details.browser.resumeConversationUrl) {
+      lines.push(`  resume conversation: ${details.browser.resumeConversationUrl}`);
     }
     if (details.browser.imageOutputPath) {
       lines.push(`  image output: ${details.browser.imageOutputPath}`);
@@ -521,6 +533,7 @@ export async function runConsultTool(
     browserResearchMode,
     browserArchive,
     browserFollowUps,
+    browserFollowupSession,
     browserKeepBrowser,
     generateImage,
     outputPath,
@@ -589,6 +602,29 @@ export async function runConsultTool(
       browserArchive,
       browserKeepBrowser,
     });
+    // Reopen a prior session's ChatGPT conversation (mirrors CLI --followup). The
+    // resumeConversationUrl navigates the browser to the stored /c/<id> chat and
+    // appends this prompt instead of starting a new conversation in the project shell.
+    if (browserFollowupSession?.trim()) {
+      let followup: Awaited<ReturnType<typeof resolveBrowserFollowupReference>>;
+      try {
+        followup = await resolveBrowserFollowupReference(browserFollowupSession, sessionStore);
+      } catch (error) {
+        return {
+          isError: true,
+          content: textContent(error instanceof Error ? error.message : String(error)),
+        };
+      }
+      if (!followup) {
+        return {
+          isError: true,
+          content: textContent(
+            `No resumable browser session found for browserFollowupSession "${browserFollowupSession}". Use the \`sessions\` tool to list ids.`,
+          ),
+        };
+      }
+      browserConfig = { ...browserConfig, resumeConversationUrl: followup.resumeConversationUrl };
+    }
   }
 
   if (dryRun) {

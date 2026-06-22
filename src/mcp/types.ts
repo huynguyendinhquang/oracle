@@ -33,6 +33,7 @@ export const consultInputSchema = z
     browserResearchMode: z.enum(["deep"]).optional(),
     browserArchive: z.enum(["auto", "always", "never"]).optional(),
     browserFollowUps: z.array(z.string()).optional(),
+    browserFollowupSession: z.string().optional(),
     browserKeepBrowser: z.boolean().optional(),
     generateImage: z.string().optional(),
     outputPath: z.string().optional(),
