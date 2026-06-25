@@ -1839,4 +1839,172 @@ describe("browser thinking-time selection expression", () => {
       ),
     ).resolves.toEqual({ status: "switched", label: "Instant" });
   });
+
+  it("verifies compact-menu Instant via the clicked row when the menu closes and the pill label does not flip", async () => {
+    class FakeEventTarget {
+      dispatchEvent(_event: unknown): boolean {
+        return true;
+      }
+    }
+    class FakeElement extends FakeEventTarget {
+      constructor(
+        public textContent: string,
+        private readonly attributes: Record<string, string> = {},
+        private readonly children: FakeElement[] = [],
+        private readonly onDispatch?: () => void,
+      ) {
+        super();
+      }
+      getAttribute(name: string): string | null {
+        return this.attributes[name] ?? null;
+      }
+      setAttribute(name: string, value: string): void {
+        this.attributes[name] = value;
+      }
+      querySelector(selector: string): FakeElement | null {
+        if (selector.includes("menu-label")) {
+          return new FakeElement("Intelligence");
+        }
+        return null;
+      }
+      querySelectorAll(_selector: string): FakeElement[] {
+        return this.children;
+      }
+      closest(_selector: string): FakeElement | null {
+        return null;
+      }
+      matches(selector: string): boolean {
+        return (
+          selector.includes("__composer-pill") &&
+          this.attributes.class?.includes("__composer-pill") === true
+        );
+      }
+      getBoundingClientRect(): { width: number; height: number } {
+        return { width: 144, height: 36 };
+      }
+      override dispatchEvent(event: unknown): boolean {
+        this.onDispatch?.();
+        return super.dispatchEvent(event);
+      }
+    }
+    class FakeMouseEvent {
+      constructor(
+        public readonly type: string,
+        public readonly init?: unknown,
+      ) {}
+    }
+
+    let intelligenceMenuOpen = true;
+    // The live composer model button (returned by MODEL_BUTTON_SELECTOR) flips
+    // to the freshly selected tier after the click — this is the authoritative
+    // signal the verifier must read.
+    const liveModelButton = new FakeElement("Extra High", {
+      class: "__composer-pill",
+      "aria-haspopup": "menu",
+      "aria-expanded": "true",
+    });
+    // The clicked trigger pill is a separate, stale node whose textContent stays
+    // frozen on the pre-click tier ("Extra High") after the compact menu detaches
+    // it. It is the element findComposerEffortPill() returns and passes into
+    // selectAndVerify, so the verifier must NOT rely on it alone.
+    const triggerPill = new FakeElement("Extra High", {
+      class: "__composer-pill",
+      "aria-expanded": "true",
+    });
+    // Clicking Instant closes the menu WITHOUT marking the row aria-checked (the
+    // detached row keeps its pre-click state); only the live button flips.
+    const instantRadio = new FakeElement(
+      "Instant",
+      { role: "menuitemradio", "aria-checked": "false", "data-state": "unchecked" },
+      [],
+      () => {
+        liveModelButton.textContent = "Instant";
+        liveModelButton.setAttribute("aria-expanded", "false");
+        triggerPill.setAttribute("aria-expanded", "false");
+        intelligenceMenuOpen = false;
+      },
+    );
+    const intelligenceMenu = new FakeElement(
+      "IntelligenceInstantMediumHighExtra HighProGPT-5.5",
+      { "data-testid": "composer-intelligence-picker-content", role: "menu" },
+      [
+        instantRadio,
+        new FakeElement("Medium", { role: "menuitemradio", "aria-checked": "false" }),
+        new FakeElement("High", { role: "menuitemradio", "aria-checked": "false" }),
+        new FakeElement("Extra High", { role: "menuitemradio", "aria-checked": "true" }),
+        new FakeElement("Pro", { role: "menuitemradio", "aria-checked": "false" }),
+      ],
+    );
+    const documentStub = {
+      body: new FakeElement(""),
+      querySelector: (selector: string) => {
+        if (selector.includes("composer-intelligence-picker-content")) {
+          return intelligenceMenuOpen ? intelligenceMenu : null;
+        }
+        // MODEL_BUTTON_SELECTOR is a compound selector that includes both
+        // "model-switcher-dropdown-button" and the aria-haspopup composer pill;
+        // findModelButton() must resolve to the live pill.
+        if (selector.includes("aria-haspopup")) {
+          return liveModelButton;
+        }
+        if (selector.includes("model-switcher-dropdown-button")) return null;
+        if (selector.includes("__composer-pill")) {
+          return liveModelButton;
+        }
+        return null;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("__composer-pill")) {
+          // findComposerEffortPill() iterates these and returns the stale trigger.
+          return selector.includes("aria-haspopup") ? [] : [triggerPill];
+        }
+        if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+          return intelligenceMenuOpen ? [intelligenceMenu] : [];
+        }
+        return [];
+      },
+      dispatchEvent: () => true,
+    };
+    let now = 0;
+    const performanceStub = { now: () => (now += 100) };
+    // Mirrors the live command `-m gpt-5.5 --browser-thinking-time instant`,
+    // where the CLI maps gpt-5.5 to the browser label "Thinking 5.5". The
+    // light/instant level must own the Instant tier even though the label says
+    // "thinking", so the picker selects the top-level Instant row and verifies
+    // it via the clicked row's aria-checked even after the menu closes.
+    const expression = buildThinkingTimeExpressionForTest("light", "Thinking 5.5");
+    const evaluate = new Function(
+      "document",
+      "performance",
+      "setTimeout",
+      "window",
+      "EventTarget",
+      "PointerEvent",
+      "MouseEvent",
+      "HTMLElement",
+      `return ${expression};`,
+    ) as (
+      document: unknown,
+      performance: unknown,
+      setTimeout: unknown,
+      window: unknown,
+      EventTarget: unknown,
+      PointerEvent: unknown,
+      MouseEvent: unknown,
+      HTMLElement: unknown,
+    ) => Promise<unknown>;
+
+    await expect(
+      evaluate(
+        documentStub,
+        performanceStub,
+        (callback: () => void) => callback(),
+        { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+        FakeEventTarget,
+        FakeMouseEvent,
+        FakeMouseEvent,
+        FakeElement,
+      ),
+    ).resolves.toEqual({ status: "switched", label: "Instant" });
+  });
 });

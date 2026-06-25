@@ -63,7 +63,7 @@ export async function ensureThinkingTime(
 ) {
   const result = await evaluateThinkingTimeSelection(Runtime, level, desiredModel);
   const capitalizedLevel = level.charAt(0).toUpperCase() + level.slice(1);
-  const targetModelKind = inferThinkingTargetModelKind(desiredModel);
+  const targetModelKind = inferThinkingTargetModelKind(desiredModel, level);
   const observedModelKind = result && "modelKind" in result ? result.modelKind : null;
   const strictProEffort =
     (targetModelKind === "pro" || observedModelKind === "pro") && level === "extended";
@@ -186,7 +186,7 @@ function buildThinkingTimeExpression(
   const menuItemLiteral = JSON.stringify(MENU_ITEM_SELECTOR);
   const modelButtonLiteral = JSON.stringify(MODEL_BUTTON_SELECTOR);
   const targetLevelLiteral = JSON.stringify(level.toLowerCase());
-  const targetModelKindLiteral = JSON.stringify(inferThinkingTargetModelKind(desiredModel));
+  const targetModelKindLiteral = JSON.stringify(inferThinkingTargetModelKind(desiredModel, level));
 
   return `(async () => {
     ${buildClickDispatcher()}
@@ -530,12 +530,24 @@ function buildThinkingTimeExpression(
     };
     const currentEffortPillMatchesTarget = (trigger, modelKindOverride = null) => {
       if (currentProEffortPillMatchesTarget(trigger, modelKindOverride)) return true;
-      const button = trigger?.matches?.('button.__composer-pill') ? trigger : findModelButton();
-      if ((modelKindOverride || TARGET_MODEL_KIND || modelKindFromNode(button)) === 'pro') {
-        return false;
+      // The clicked trigger is often a stale/detached node whose textContent
+      // froze on the pre-click tier (e.g. the compact menu replaces the pill on
+      // selection). Always consult the live composer model button too, since it
+      // reflects the freshly selected tier (e.g. "Instant").
+      const candidates = [];
+      const liveButton = findModelButton();
+      if (liveButton) candidates.push(liveButton);
+      if (trigger?.matches?.('button.__composer-pill') && trigger !== liveButton) {
+        candidates.push(trigger);
       }
-      const label = (button?.textContent ?? '') + ' ' + (button?.getAttribute?.('aria-label') ?? '');
-      return matchesLevel(label);
+      for (const button of candidates) {
+        if ((modelKindOverride || TARGET_MODEL_KIND || modelKindFromNode(button)) === 'pro') {
+          continue;
+        }
+        const label = (button?.textContent ?? '') + ' ' + (button?.getAttribute?.('aria-label') ?? '');
+        if (matchesLevel(label)) return true;
+      }
+      return false;
     };
     const selectAndVerify = async (trigger, findOption, modelKindOverride = null) => {
       const option = findOption();
@@ -558,6 +570,12 @@ function buildThinkingTimeExpression(
         closeOpenMenus();
         return { status: 'switched', label: refreshed.textContent?.trim?.() || label };
       }
+      // The clicked row may still carry aria-checked="true" even after the
+      // compact menu detaches, so trust the captured option when it does.
+      if (optionIsSelected(option)) {
+        closeOpenMenus();
+        return { status: 'switched', label };
+      }
       if (currentEffortPillMatchesTarget(trigger, triggerModelKind)) {
         closeOpenMenus();
         return { status: 'switched', label };
@@ -573,6 +591,10 @@ function buildThinkingTimeExpression(
         if (selected && optionIsSelected(selected)) {
           closeOpenMenus();
           return { status: 'switched', label: selected.textContent?.trim?.() || label };
+        }
+        if (optionIsSelected(option)) {
+          closeOpenMenus();
+          return { status: 'switched', label };
         }
         if (currentEffortPillMatchesTarget(trigger, triggerModelKind)) {
           closeOpenMenus();
@@ -923,7 +945,15 @@ export function buildThinkingTimeExpressionForTest(
 
 function inferThinkingTargetModelKind(
   desiredModel?: string | null,
+  level?: ThinkingTimeLevel,
 ): "pro" | "thinking" | "instant" | null {
+  // ChatGPT's compact menu exposes "Instant" as a top-level tier, not a thinking
+  // effort. When the caller requests the lightest level, the Instant row is the
+  // target regardless of the model label (e.g. gpt-5.5 maps to "Thinking 5.5"),
+  // so resolve the kind to "instant" and let the picker select that row. This
+  // keeps the Instant case owned by a single step instead of asking the effort
+  // logic to confirm a thinking effort that no longer exists.
+  if (level === "light") return "instant";
   const normalized = (desiredModel ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
