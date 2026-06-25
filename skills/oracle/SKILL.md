@@ -1,141 +1,119 @@
 ---
 name: oracle
-description: "Oracle second-model review: bundle prompts/files, debug, refactor, design-check."
+description: Use when the user asks to consult the Oracle, use /oracle, get an external ChatGPT-web / GPT-5.x Pro second opinion, run heavy independent reasoning, validate architecture, review code with file context, or cross-check a design across models. Wraps the @steipete/oracle CLI + oracle-mcp `consult` tool to steer ChatGPT Web (browser, flat ChatGPT-Pro subscription) or call OpenAI/Gemini/Claude APIs, returning a durable answer other agents can read. Reach for this whenever a task benefits from a stronger external reasoner with real file context — even a casual "ask the oracle" / "get a second opinion".
 ---
 
-# Oracle (CLI) — best use
+# Oracle (@steipete/oracle)
 
-Oracle bundles your prompt + selected files into one “one-shot” request so another model can answer with real repo context (API or browser automation). Treat outputs as advisory: verify against the codebase + tests.
+Hand a prompt **plus file context** to a stronger external reasoner. Submission is a **direct tool call** (MCP `consult` or the `oracle` CLI) — no LLM middleman re-writes your prompt, so what you send is what the model sees. Treat the answer as **advisory**: verify against the codebase + tests.
 
-## Main use case (browser, GPT‑5.5 Pro)
+Binaries: `oracle` (CLI), `oracle-mcp` (MCP server, the `consult` tool) — both installed, call them directly (no `npx`). Full flags: `oracle --help --verbose` and [references/cli-reference.md](references/cli-reference.md).
 
-Default workflow here: `--engine browser` with GPT‑5.5 Pro in ChatGPT. This is the “human in the loop” path: it can take ~10 minutes to ~1 hour; expect a stored session you can reattach to.
+## Reliable lane on THIS machine (WSL2, no API keys set)
 
-Recommended defaults:
+The verified, no-cost path is **ChatGPT Web (browser) on the flat Pro subscription**:
 
-- Engine: browser (`--engine browser`)
-- Model: GPT‑5.5 Pro (either `--model gpt-5.5-pro` or a ChatGPT picker label like `--model "5.5 Pro"`)
-- Attachments: directories/globs + excludes; avoid secrets.
+```bash
+oracle --engine browser -m gpt-5.5-pro --browser-model-strategy current \
+  --browser-attachments always \
+  -p "<question + expected output shape>" --file "src/**/*.ts"
+```
 
-## Golden path (fast + reliable)
+Three rules learned the hard way — follow them:
 
-1. Pick a tight file set (fewest files that still contain the truth).
-2. Preview what you’re about to send (`--dry-run` + `--files-report` when needed).
-3. Run in browser mode for the usual GPT‑5.5 Pro ChatGPT workflow; use API only when you explicitly want it.
-4. If the run detaches/timeouts: reattach to the stored session (don’t re-run).
+1. **Model: pick the tier with `-m` + `--browser-thinking-time` (verified matrix below), or pin `gpt-5.5-pro` / use `--browser-model-strategy current`.** Do NOT request `gpt-5.2-instant` or tiers by version-name — the live picker shows short labels (Instant / Medium / High / Extra High / Pro) and version-prefixed ids fail ("Unable to find model option").
+2. **Files: always pass `--browser-attachments always`.** The default `auto` *pastes file text inline into the prompt* up to ~60k chars and only uploads above that — so small files are NOT real attachments. `always` forces a real ChatGPT file upload every time. Always include ≥1 `--file`.
+3. **Claude/multi-model → API engine, not browser.** Grok = API-only too (browser dropped). Gemini-web works in browser (see matrix). API needs keys (see below).
 
-## Commands (preferred)
+Session reuse: `--copy-profile <chrome-user-data-dir>` is the supported built-in way to reuse an already-signed-in Chrome session — copies the profile to a throwaway dir, runs against it (real keychain → cookies decrypt), then deletes the copy (mirrors the agent-browser no-Cloudflare approach). Full note in references.
 
-- Show help (once/session):
-  - `npx -y @steipete/oracle --help`
+### ChatGPT browser tier → CLI (verified 2026-06-18 on this box)
 
-- Preview (no tokens):
-  - `npx -y @steipete/oracle --dry-run summary -p "<task>" --file "src/**" --file "!**/*.test.*"`
-  - `npx -y @steipete/oracle --dry-run full -p "<task>" --file "src/**"`
+The current ChatGPT UI is one **compact menu**: Instant / Medium / High / Extra High / Pro. Effort = `--browser-thinking-time`, NOT a version-named model. Map (use `--browser-model-strategy select`, default):
 
-- Token/cost sanity:
-  - `npx -y @steipete/oracle --dry-run summary --files-report -p "<task>" --file "src/**"`
+| Tier | Flags |
+|---|---|
+| Medium | `-m gpt-5.5 --browser-thinking-time medium` |
+| High | `-m gpt-5.5 --browser-thinking-time high` |
+| Extra High | `-m gpt-5.5 --browser-thinking-time extra-high` |
+| Pro (Standard) | `-m gpt-5.5-pro --browser-thinking-time standard` |
+| Pro Extended | `-m gpt-5.5-pro --browser-thinking-time extended` |
+| **Instant** | ⚠️ Known limitation (as of 2026-06-25): browser-select of Instant silently **falls back to the currently-active tier** (logs `selection unverified … continuing with ChatGPT default`) — ChatGPT's compact menu treats Instant as a top-level tier, not a thinking-effort, so oracle's effort step can't verify it. Fix in progress. Get true Instant via `--engine api -m gpt-5.2-instant`, or accept a higher browser tier; **re-verify after upgrades**. |
 
-- Startup/perf trace:
-  - `npx -y @steipete/oracle --perf-trace --perf-trace-path /tmp/oracle-perf.json --dry-run summary -p "<task>" --file "src/**"`
-  - Use when CLI startup or time-to-first-output feels slow; inspect `first-output` and `exit`.
+So "oracle, run gpt-5.5 extra high" → `oracle --engine browser -m gpt-5.5 --browser-model-strategy select --browser-thinking-time extra-high --browser-attachments always -p "..." --file ...`.
 
-- Browser run (main path; long-running is normal):
-  - `npx -y @steipete/oracle --engine browser --model gpt-5.5-pro -p "<task>" --file "src/**"`
+### Gemini browser (works as of 2026-06-18 fix)
 
-- Manual paste fallback (assemble bundle, copy to clipboard):
-  - `npx -y @steipete/oracle --render --copy -p "<task>" --file "src/**"`
-  - Note: `--copy` is a hidden alias for `--copy-markdown`.
+`oracle --engine browser -m gemini-3.1-pro -p "..."` (also `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-3-pro-deep-think`). Header-based model select (RPC, not DOM) — fast (~3s). Cookies auto-import from Linux Chrome; if a cookie-decrypt warning appears, prefix `SWEET_COOKIE_LINUX_KEYRING=basic`. (Evidence now reports the real model, not the old false "unavailable".)
 
-## Attaching files (`--file`)
+### WSL env (required)
 
-`--file` accepts files, directories, and globs. You can pass it multiple times; entries can be comma-separated.
+Already persisted in `~/.bashrc` and set in the MCP server env:
+- `CHROME_PATH=/usr/bin/google-chrome` — force Linux Chrome, not Windows chrome.exe.
+- `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1` — loopback CDP, avoids the Windows-chrome / Tailscale-IP (100.x) ECONNREFUSED.
 
-- Include:
-  - `--file "src/**"` (directory glob)
-  - `--file src/index.ts` (literal file)
-  - `--file docs --file README.md` (literal directory + file)
+Cookie auth reads `~/.config/google-chrome/Default` — be logged into ChatGPT there.
 
-- Exclude (prefix with `!`):
-  - `--file "src/**" --file "!src/**/*.test.ts" --file "!**/*.snap"`
+## Pick the file set & preview before you spend
 
-- Defaults (important behavior from the implementation):
-  - Default-ignored dirs: `node_modules`, `dist`, `coverage`, `.git`, `.turbo`, `.next`, `build`, `tmp` (skipped unless you explicitly pass them as literal dirs/files).
-  - Honors `.gitignore` when expanding globs.
-  - Does not follow symlinks (glob expansion uses `followSymbolicLinks: false`).
-  - Dotfiles are filtered unless you explicitly opt in with a pattern that includes a dot-segment (e.g. `--file ".github/**"`).
-  - Default cap: files > 1 MB are rejected unless you raise `ORACLE_MAX_FILE_SIZE_BYTES` or `maxFileSizeBytes` in `~/.oracle/config.json`.
+Fewer files + a better prompt beats whole-repo dumps. Pick the tightest set that still contains the truth, then preview before sending:
 
-## Budget + observability
+```bash
+oracle --dry-run summary --files-report -p "<task>" --file "src/**" --file "!**/*.test.*"
+```
 
-- Target: keep total input under ~196k tokens.
-- Use `--files-report` (and/or `--dry-run json`) to spot the token hogs before spending.
-- Use `--perf-trace` / `ORACLE_PERF_TRACE=1` for startup and first-output timing. Traces redact prompts, tokens, keys, cookies, and inline cookie payloads; detached API children write a session-suffixed sidecar trace.
-- If you need hidden/advanced knobs: `npx -y @steipete/oracle --help --verbose`.
+- `--dry-run summary|full|json` previews the assembled request without calling any model (no tokens spent). `--files-report` shows the token accounting so you can spot the hogs.
+- Budget target: keep total input under ~196k tokens.
+- `--file` honors `.gitignore`, skips default-ignored dirs (`node_modules`, `dist`, `.git`, `.next`, `build`, `tmp`, …), does not follow symlinks, filters dotfiles unless you opt in, and rejects files >1 MB. Full semantics in references.
 
-## Engines (API vs browser)
+## Prompt template (Oracle has zero project knowledge)
 
-- Auto-pick: uses `api` when `OPENAI_API_KEY` is set, otherwise `browser`.
-- Browser engine supports GPT + Gemini only; use `--engine api` for Claude/Grok/Codex or multi-model runs.
-- `--copy-profile <chrome-user-data-dir>`: reuse your **already signed-in** Chrome session with no manual login — copies the profile to a throwaway dir, launches with the real Keychain so its cookies decrypt, runs, then always deletes the copy. Failed/incomplete runs are deleted too, so they cannot be kept, reattached, or sent to an existing/remote browser. e.g. `oracle --engine browser --copy-profile "$HOME/Library/Application Support/Google/Chrome" -p "<task>"`. macOS/Linux; needs `rsync`.
-- **API runs require explicit user consent** before starting because they incur usage costs.
-- Browser attachments:
-  - `--browser-attachments auto|never|always` (auto pastes inline up to ~60k chars then uploads).
-  - Add `--browser-bundle-files --browser-bundle-format auto|zip` to upload many files as one bundle; ZIP bundles preserve original file bytes.
-- Remote browser host (signed-in machine runs automation):
-  - Host: `oracle serve --host 0.0.0.0 --port 9473 --token <secret>`
-  - Client: `oracle --engine browser --remote-host <host:port> --remote-token <secret> -p "<task>" --file "src/**"`
+Oracle cannot infer your stack, build tooling, conventions, or "obvious" paths — each run is one-shot with no memory of prior runs. Include:
 
-## API preflight
+- **Project briefing** — stack + build/test commands + platform constraints.
+- **Where things live** — key dirs, entrypoints, config files, dependency boundaries.
+- **Exact question** — what you tried + the error text (verbatim).
+- **Constraints** — "don't change X", "keep public API", perf budget.
+- **Desired output** — "return a patch plan + tests", "3 options with tradeoffs", "list risky assumptions".
 
-- API runs require explicit user consent and cost money.
-- Before API runs, check provider readiness without printing secrets:
-  - `oracle doctor --providers --models gpt-5.4,claude-4.6-sonnet,gemini-3-pro`
-  - `oracle --preflight --models gpt-5.4,gemini-3-pro`
-  - `oracle --route --model gpt-5.4`
-- If the user wants first-party OpenAI, pass `--provider openai` or `--no-azure`. This prevents exported Azure env/config from hijacking the route:
-  - `oracle --provider openai --engine api --model gpt-5.5-pro ...`
-- For advisory multi-model panels where partial success is useful, use `--allow-partial --write-output <path>` so successful model files and the `<stem>.oracle.json` manifest are easy to recover:
-  - `oracle --models gpt-5.4,claude-4.6-sonnet,gemini-3-pro --allow-partial --write-output /tmp/panel.md -p "<task>"`
-- `--timeout 10m` is the normal user-facing API deadline; Oracle derives the HTTP transport timeout unless `--http-timeout` is explicitly set.
-- If the exported `OPENAI_API_KEY` is invalid and the user wants their personal OpenAI key, use `$one-password` in one persistent tmux session. Known item: `API Key - OpenAI - Personal`, field `api_key`. Inject only into the single Oracle command; never print the key:
-  - `OPENAI_API_KEY="$(op item get 'API Key - OpenAI - Personal' --account my.1password.com --fields label=api_key --reveal)" oracle --provider openai --engine api --model gpt-5.5-pro ...`
-- For debugging Oracle itself, prefer the local checkout after pulling `~/Projects/oracle`:
-  - `pnpm -C ~/Projects/oracle run build`
-  - `node ~/Projects/oracle/dist/scripts/run-cli.js ...`
+For long investigations, write an "exhaustive prompt" that stands alone later (briefing on top, repro + errors in the middle, all needed context files attached at the bottom) so a fresh model can fully understand it.
 
-## Sessions + slugs (don’t lose work)
+## API engine (optional — needs keys, costs money, requires consent)
 
-- Stored under `~/.oracle/sessions` (override with `ORACLE_HOME_DIR`).
-- Browser runs save durable files under `~/.oracle/sessions/<id>/artifacts/`, including `transcript.md`, Deep Research reports, and downloaded ChatGPT-generated images when available.
-- Runs may detach or take a long time (browser/API + GPT‑5.5 Pro often does). If the CLI times out: don’t re-run; reattach.
-  - List: `oracle status --hours 72`
-  - Attach: `oracle session <id> --render`
-- Use `--slug "<3-5 words>"` to keep session IDs readable.
-- Duplicate prompt guard exists; use `--force` only when you truly want a fresh run.
-- CLI guardrails: root runs without a prompt exit nonzero; `--dry-run` conflicts with `--render` / `--render-markdown`; Ctrl-C exits foreground API runs with code 130 while browser cleanup/reattach still runs.
+Reliable, no browser fragility, but costs tokens and sends context to the provider. Only when the user explicitly opts in and the key exists:
 
-## Prompt template (high signal)
+```bash
+oracle -p "Cross-check this" --models gpt-5.5-pro,gemini-3.1-pro,claude-4.6-sonnet --file "src/**/*.ts"
+```
 
-Oracle starts with **zero** project knowledge. Assume the model cannot infer your stack, build tooling, conventions, or “obvious” paths. Include:
+Keys: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`. Check first: `oracle doctor --providers`. `--models` runs in parallel with aggregated cost; `--allow-partial` tolerates failures. For first-party OpenAI (avoid Azure hijack) use `--provider openai` / `--no-azure`. Preflight + 1Password key recipe in references.
 
-- Project briefing (stack + build/test commands + platform constraints).
-- “Where things live” (key directories, entrypoints, config files, dependency boundaries).
-- Exact question + what you tried + the error text (verbatim).
-- Constraints (“don’t change X”, “must keep public API”, “perf budget”, etc).
-- Desired output (“return patch plan + tests”, “list risky assumptions”, “give 3 options with tradeoffs”).
+## Long Pro runs are detached — recover, don't re-run
 
-### “Exhaustive prompt” pattern (for later restoration)
+GPT-5.x Pro runs detach by default (can take ~10 min to ~1 hour). On timeout do NOT re-run (the duplicate-prompt guard blocks it):
 
-When you know this will be a long investigation, write a prompt that can stand alone later:
+```bash
+oracle status            # recent sessions
+oracle session <id>      # reattach + capture the final answer
+```
 
-- Top: 6–30 sentence project briefing + current goal.
-- Middle: concrete repro steps + exact errors + what you already tried.
-- Bottom: attach _all_ context files needed so a fresh model can fully understand (entrypoints, configs, key modules, docs).
+Or auto-poll: `--browser-auto-reattach-delay 30s --browser-auto-reattach-interval 2m`. Continue a thread: repeat `--browser-follow-up "<next>"`, or resume later with `--followup <sessionId>`. Use `--slug "<3-5 words>"` for readable session ids.
 
-If you need to reproduce the same context later, re-run with the same prompt + `--file …` set (Oracle runs are one-shot; the model doesn’t remember prior runs).
+## Parallel jobs
+
+Genuinely supported (unlike the old single-session setup):
+- **API**: `--models a,b,c` runs in parallel in one command.
+- **Browser**: `--browser-max-concurrent-tabs N` with a tab-lease registry over one signed-in profile. Still bounded by the single ChatGPT account's rate limits — keep N small (2-3) for heavy Pro runs.
+
+## MCP (preferred for agents)
+
+`oracle-mcp` exposes the `consult` tool (wired into Claude Code / Codex / opencode). In a `consult` call use `preset: "chatgpt-pro-heavy"` for browser GPT-5.5 Pro + Pro Extended thinking; add `dryRun: true` to inspect the resolved run without touching Chrome. Re-generate client config: `oracle bridge claude-config --local-browser` / `oracle bridge codex-config`.
 
 ## Safety
 
-- Don’t attach secrets by default (`.env`, key files, auth tokens). Redact aggressively; share only what’s required.
-- Prefer “just enough context”: fewer files + better prompt beats whole-repo dumps.
+- Don't attach secrets by default (`.env`, key files, auth tokens). Redact aggressively; share only what's required.
+- Prefer "just enough context": fewer files + a sharper prompt beats a whole-repo dump.
+
+## Reporting back
+
+Report the engine/model used, the session id (so the user can reattach), and the answer. A timed-out Pro run is usually still finishing — recover via `oracle session <id>`, don't treat it as failure.
