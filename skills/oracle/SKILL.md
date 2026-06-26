@@ -5,9 +5,11 @@ description: Use when the user asks to consult the Oracle, use /oracle, get an e
 
 # Oracle (@steipete/oracle)
 
-Hand a prompt **plus file context** to a stronger external reasoner. Submission is a **direct tool call** (MCP `consult` or the `oracle` CLI) — no LLM middleman re-writes your prompt, so what you send is what the model sees. Treat the answer as **advisory**: verify against the codebase + tests.
+Hand a prompt **plus file context** to a stronger external reasoner. Submission is a **direct tool call** (the `oracle` CLI or the MCP `consult` tool) — no LLM middleman re-writes your prompt, so what you send is what the model sees. Treat the answer as **advisory**: verify against the codebase + tests.
 
 Binaries: `oracle` (CLI), `oracle-mcp` (MCP server, the `consult` tool) — both installed, call them directly (no `npx`). Full flags: `oracle --help --verbose` and [references/cli-reference.md](references/cli-reference.md).
+
+**Default to the `oracle` CLI on this fork.** It always runs the freshly-built code. The long-lived MCP server caches `dist/` at startup, so it serves stale code after a rebuild until restarted (see MCP section) — the recurring `ECONNREFUSED`/old-behavior trap.
 
 ## Reliable lane on THIS machine (WSL2, no API keys set)
 
@@ -105,9 +107,11 @@ Genuinely supported (unlike the old single-session setup):
 - **API**: `--models a,b,c` runs in parallel in one command.
 - **Browser**: `--browser-max-concurrent-tabs N` with a tab-lease registry over one signed-in profile. Still bounded by the single ChatGPT account's rate limits — keep N small (2-3) for heavy Pro runs.
 
-## MCP (preferred for agents)
+## MCP (optional — restart after every fork rebuild)
 
-`oracle-mcp` exposes the `consult` tool (wired into Claude Code / Codex / opencode). In a `consult` call use `preset: "chatgpt-pro-heavy"` for browser GPT-5.5 Pro + Pro Extended thinking; add `dryRun: true` to inspect the resolved run without touching Chrome. Re-generate client config: `oracle bridge claude-config --local-browser` / `oracle bridge codex-config`.
+`oracle-mcp` exposes the `consult` tool (wired into Claude Code / Codex / opencode) — convenient for long or structured prompts (`preset: "chatgpt-pro-heavy"` for browser GPT-5.5 Pro + Pro Extended; `dryRun: true` to inspect the resolved run without touching Chrome).
+
+**Caveat on this actively-developed fork:** the server loads the built `dist/` at process start, so a server started before a rebuild serves STALE code — symptom: `ECONNREFUSED 127.0.0.1:<port>` or old behavior even though the CLI works. **If you rebuilt (`pnpm run build` / `npm link`) since the MCP client started, restart the client (or kill `oracle-mcp`) before calling `consult`** — otherwise just use the CLI, which always runs current code. Re-generate client config: `oracle bridge claude-config --local-browser` / `oracle bridge codex-config`.
 
 ## Safety
 
