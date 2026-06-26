@@ -38,7 +38,7 @@ The current ChatGPT UI is one **compact menu**: Instant / Medium / High / Extra 
 | Extra High | `-m gpt-5.5 --browser-thinking-time extra-high` |
 | Pro (Standard) | `-m gpt-5.5-pro --browser-thinking-time standard` |
 | Pro Extended | `-m gpt-5.5-pro --browser-thinking-time extended` |
-| **Instant** | ⚠️ Known limitation (as of 2026-06-25): browser-select of Instant silently **falls back to the currently-active tier** (logs `selection unverified … continuing with ChatGPT default`) — ChatGPT's compact menu treats Instant as a top-level tier, not a thinking-effort, so oracle's effort step can't verify it. Fix in progress. Get true Instant via `--engine api -m gpt-5.2-instant`, or accept a higher browser tier; **re-verify after upgrades**. |
+| Instant | `-m gpt-5.5 --browser-thinking-time instant` ✅ fixed 2026-06-26 — selects the top-level "Instant" compact-menu tier (verifies via the row's `aria-checked` / live pill label). DOM-fragile (tier rows have no stable testid) — **re-verify after ChatGPT UI changes**; if it regresses, fall back to `--engine api -m gpt-5.2-instant`. |
 
 So "oracle, run gpt-5.5 extra high" → `oracle --engine browser -m gpt-5.5 --browser-model-strategy select --browser-thinking-time extra-high --browser-attachments always -p "..." --file ...`.
 
